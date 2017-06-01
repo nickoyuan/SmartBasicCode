@@ -1,0 +1,653 @@
+
+//Variable Declarations
+dim rc as integer  // declaring rc as an integer
+
+/////////////////////////////////////////////////////////
+//////////////////////BLE Variables//////////////////////
+/////////////////////////////////////////////////////////
+DIM addr$ : addr$ = ""
+DIM hHtsSvc    //composite handle for hts primary sersvice
+DIM conHndl
+DIM test as integer
+DIM counter as integer
+
+
+// BLE GAP SVC Init 
+#define DEVICENAME                        "M100electromed"
+#define DEVICENAME_WRITABLE               1   // means we can change the Name of AD 
+#define APPEARANCE        128                 // Generic computer 
+
+
+// Range must be between 7500 and 4000000
+//Minimum acceptable connection interval (10 seconds)
+#define MIN_CONN_INTERVAL                 1000000
+//Maximum acceptable connection interval (10 second).
+#define MAX_CONN_INTERVAL                 1000000
+
+
+
+//Connection supervisory timeout (4 seconds) - max 32 seconds
+#define CONN_SUP_TIMEOUT                  4000000
+
+        //Effective Conn interval will be (SLAVE_LATENCY+1)*ACTUAL_CONN_INTERVAL
+#define SLAVE_LATENCY                     2
+
+DIM original_value$ : original_value$ = ""
+
+
+#DEFINE ECCP_ARRAY_SIZE 180
+
+DIM ECCP_ARRAY[180] as integer //Stores resistance values
+
+DIM ECCP_ARRAY_COUNTER : ECCP_ARRAY_COUNTER = 0 
+
+
+DIM hHtsMeas    //composite handle for htsMeas characteristic
+
+DIM discovMode : discovMode=0
+DIM advAppearance : advAppearance = 1
+DIM maxDevName : maxDevName = 10
+
+
+// Advertising Report 
+ DIM advRpt$ : advRpt$=""
+ dim scnRpt$ : scnRpt$=""
+ 
+ 
+ // Delay 
+ DIM milli as INTEGER
+ 
+ // Timer 
+DIM startTick, elapseMs
+
+ 
+ 
+ // Packets 
+ DIM packet_len : packet_len = 0
+ 
+ DIM newvalues$ : newvalues$ = ""
+ 
+ // Advertising Services 
+ #DEFINE BLE_SERVICE_PRIMARY 1
+
+
+function HndlrBlrAdvTimOut()
+
+	print "ADVERT STOPPED VIA TIMEOUT"
+	gpiowrite(17,0)
+	
+endfunc 1
+
+function button0release()
+
+
+
+endfunc 1 
+
+
+SUB CloseConnections()
+	 
+	 rc=BleDisconnect(conHndl)
+	 rc=BleAdvertStop() 
+ 
+ ENDSUB
+
+Sub MakeAdvertReports()
+	 dim dn$  : dn$ = "electromed"
+
+
+
+	  //Initialise the advert report
+	 rc = BleScanRptInit(advRpt$)
+	 
+	 
+	 rc = BleAdvRptAppendAD(advRpt$,0x09,dn$)
+	 
+	 
+	 rc = BleAdvRptsCommit(advRpt$, scnRpt$)
+ 
+EndSub
+
+/////////////////////////////////////////////////////////
+////////////////M100 INFO, Do not delete/////////////////
+/////////////////////////////////////////////////////////
+
+Sub device_info()
+ 
+	//The device manufacturer
+    dim manfNme$ : manfNme$ = ""
+	
+	//The device model number changed to Device Battery Number 
+    dim mdlNum$ : mdlNum$ = "100"
+	
+	//The device serial number
+    dim srlNum$ : srlNum$ = "EE121xp"
+	
+	//The device hardware revision string
+    dim hwRev$ : hwRev$ = "1.0"
+
+	//The device software revision string
+    dim swRev$ : swRev$ = "1.0"
+	
+	// System ID  can be set to NULL
+    dim sysId$ : sysId$ = ""
+	
+	// Device Regulatory Certification Data list defined in specifications 
+    dim regDtaLst$ : regDtaLst$ = ""
+	
+	//Device plug and play ID 
+    dim pnpId$ : pnpId$ = ""
+	
+	rc=BleSvcRegDevInfo(manfNme$, mdlNum$, srlNum$, hwRev$, swRev$, sysId$, regDtaLst$, pnpId$)
+
+EndSub
+
+
+
+
+Sub changeAdvertReport()
+
+	 dim dn$  : dn$ = "electromedbond"
+
+
+	  //Initialise the advert report
+	 rc = BleScanRptInit(advRpt$)
+	 
+	 
+	 rc = BleAdvRptAppendAD(advRpt$,0x09,dn$)
+	 
+	 
+	 rc = BleAdvRptsCommit(advRpt$, scnRpt$)
+
+
+EndSub
+
+
+
+
+//==============================================================================
+// Ble event handler
+//==============================================================================
+FUNCTION HndlrBleMsg(BYVAL nMsgId, BYVAL nCtx) 
+    
+	conHndl = nCtx
+	
+    IF nMsgID==1 THEN
+        PRINT "\n\n--- Disconnected from client re-advertising after 30 seconds"
+		gpiowrite(17,0)
+		// 30 Seconds
+		TimerStart(2,20000,0)
+    
+		
+	ELSEIF nMsgID==10 THEN 
+	    PRINT "\n New Bond has being created!"
+		
+	
+		
+    ELSEIF nMsgID==0 THEN
+        PRINT "\n--- Connected to client --- \n"
+		
+    ENDIF
+	
+ENDFUNC 1
+
+
+
+
+
+SUB commitvalues()
+	     
+	     DO
+			 		 
+         ECCP_ARRAY[ECCP_ARRAY_COUNTER] = ECCP_ARRAY_COUNTER
+     
+	     ECCP_ARRAY_COUNTER = ECCP_ARRAY_COUNTER + 1
+		 
+		 // I want 0 to 179
+	     DOWHILE ECCP_ARRAY_COUNTER != 180
+		 
+		 ECCP_ARRAY_COUNTER = 0
+		 
+ENDSUB
+
+
+SUB addingvalues()
+ 
+     DIM i AS INTEGER
+	 
+	 DIM packet : packet = 0 
+	 
+	 startTick = GetTickCount()
+   
+     for i=0 to 9 step 1
+	 
+			IF BleEncodeSFLOATEX(original_value$,ECCP_ARRAY[i],packet)==0 THEN   
+				PRINT "\n Number Converted OK \n"
+			ELSE
+				PRINT "\nFailed"
+			ENDIF
+			
+			packet = packet + 2
+	 next
+
+
+ENDSUB
+
+
+Sub Delay(milli)
+	 dim i : i = GetTickCount()
+	 while GetTickSince(i)<milli
+	 endwhile
+EndSub
+
+
+FUNCTION HndlrCharCccd(BYVAL charHandle, BYVAL nVal) AS INTEGER
+
+   
+	DIM i AS INTEGER
+	
+	DIM value$: value$= ""
+	
+	DIM multiple_of_two : multiple_of_two = 0
+	
+   
+    IF charHandle==hHtsMeas THEN
+        PRINT "\nCCCD Val: ";nVal
+         IF nVal THEN
+				PRINT " : Notifications have been enabled by client"
+				
+				for i=10 to 89 step 1
+				
+					    // Packet Length of 0 to 18 
+						IF BleEncodeSFLOATEX(value$,ECCP_ARRAY[i],packet_len)==0 THEN   
+							PRINT "\n Number Converted OK \n";i;
+						ELSE
+							PRINT "\nFailed"
+						ENDIF
+						
+						packet_len = packet_len + 2
+						
+						IF packet_len > 18 THEN 
+
+							IF BleCharValueNotify(hHtsMeas,value$)!=0 THEN
+								PRINT "\n Failed \n" 
+								packet_len = 0
+							ELSE
+								PRINT "\nSuccessful"    
+                                packet_len = 0								
+						    ENDIF	
+							
+							
+				        
+						ENDIF
+						
+						
+						
+				next
+				// 1000 mili seconds or 1 sec
+				TIMERSTART(0,1000,0)
+				
+        ELSE
+            PRINT " : Notifications have been disabled by client"
+        ENDIF
+		
+		
+        ELSE
+           PRINT "\nThis is for some other characteristic"
+		   CloseConnections()
+    ENDIF
+ENDFUNC 1
+
+
+
+FUNCTION HandlerTimer1()
+
+
+    DIM i AS INTEGER
+    packet_len = 0
+	
+      for i=170 to 179 step 1
+				
+					    // Packet Length of 0 to 18 
+						IF BleEncodeSFLOATEX(newvalues$,ECCP_ARRAY[i],packet_len)==0 THEN   
+							PRINT "\n Number Converted OK \n";i;
+						ELSE
+							PRINT "\nFailed"
+						ENDIF
+						
+						packet_len = packet_len + 2
+						
+						IF packet_len > 18 THEN 
+
+							IF BleCharValueNotify(hHtsMeas,newvalues$)!=0 THEN
+								PRINT "\n Successful notification of new value \n" 
+								packet_len = 0
+							ELSE
+								PRINT "\nError to notify"    
+                                packet_len = 0								
+						    ENDIF	
+							
+				        ENDIF
+						
+						
+		next
+
+
+elapseMs = GetTickSince(startTick)
+PRINT "\n\nThe Do Until loop took ";elapseMS; " msec to process"
+
+// START TIMER TO RE-START BLE ADVERTISING AGAIN
+TIMERSTART(3,4000,0)
+
+
+ENDFUNC 1 //exit from WAITEVENT
+
+
+
+FUNCTION OutputCheck_Timer1()
+
+    DIM i AS INTEGER
+
+      for i=90 to 169 step 1
+				
+					    // Packet Length of 0 to 18 
+						IF BleEncodeSFLOATEX(newvalues$,ECCP_ARRAY[i],packet_len)==0 THEN   
+							PRINT "\n Number Converted OK \n";i;
+						ELSE
+							PRINT "\nFailed"
+						ENDIF
+						
+						packet_len = packet_len + 2
+						
+						IF packet_len > 18 THEN 
+
+							IF BleCharValueNotify(hHtsMeas,newvalues$)!=0 THEN
+								PRINT "\n Successful notification of new value \n" 
+								packet_len = 0
+							ELSE
+								PRINT "\nError to notify"    
+                                packet_len = 0								
+						    ENDIF	
+							
+				        ENDIF
+						
+						
+		next
+		
+		TimerStart(1,1000,0)
+ 
+ENDFUNC 1 //remain blocked in WAITEVENT
+
+
+
+
+
+Sub CreateServices()
+
+		DIM rc 
+
+		
+		DIM mantissa, exp
+
+
+		DIM usrDesc$ : usrDesc$="A description" 
+		
+		DIM mdCharVal : mdCharVal = BleAttrMetadataEx(1,1,20,0,rc)
+		//DIM mdCccd : mdCccd = BleAttrMetadata(1,1,2,0,rc)
+		
+
+
+		//----------------------------------------------------------------------------
+		//Create a PRIMARY service attribute which has a uuid of 0xABCD
+		//----------------------------------------------------------------------------
+		IF BleServiceNew(BLE_SERVICE_PRIMARY, BleHandleUuid16(0xABCD), hHtsSvc)== 0 THEN 
+		  PRINT "\n PRIMARY SERVICE SUCCESS! \n"
+		ELSE 
+		  PRINT "THIS FAILED \n"
+		ENDIF
+
+
+		//----------------------------------------------------------------------------
+		//Create the Measurement Characteristic object, add user description descriptor
+		//----------------------------------------------------------------------------
+
+		IF BleCharNew(0x2A,BleHandleUuid16(0xEF23),mdCharVal,0,0)== 0 THEN 
+		  PRINT "\n SECONDARY SERVICE SUCCESS ! \n"
+		ELSE 
+		  PRINT "THIS FAILED \n"
+		ENDIF
+
+		//----------------------------------------------------------------------------
+		//Commit the characteristics with some initial data
+		//----------------------------------------------------------------------------
+		 commitvalues()
+	   
+	     addingvalues()
+	   
+		//Use SYSINFO(2019) to obtain the actual default size 
+		PRINT "\n";SYSINFO(2019);"\n"
+
+		//and SYSINFO(2020) to obtain the maximum allowed
+		PRINT "\n";SYSINFO(2020);"\n"
+
+		//The maximum attribute length can be obtained using the function SYSINFO(n) where n is 2013
+		PRINT "\n";SYSINFO(2013);"\n"
+
+
+
+		IF BleCharCommit(hHtsSvc,original_value$,hHtsMeas)==0 THEN
+			PRINT "\nCharacteristic Commited"
+		ELSE
+			PRINT "\nFailed"
+		ENDIF
+
+
+		rc=BleServiceCommit(hHtsSvc)
+
+		//the characteristic will now be visible in the GATT table
+		//and is refrenced by ‘hHtsMeas’for subsequent calls
+			
+
+EndSub
+
+
+SUB InitGapService()
+
+  
+   // Mandatory Characteristic which is stored in Generic Access  
+   rc = BleGapSvcInit(DEVICENAME,DEVICENAME_WRITABLE,APPEARANCE,MIN_CONN_INTERVAL,MAX_CONN_INTERVAL,CONN_SUP_TIMEOUT,SLAVE_LATENCY)
+  
+ENDSUB
+
+SUB btnsub0()
+
+        DIM rc,dp
+		// This is dp
+        dp= 0 
+		// Set the BLE TX Power to 0 dB, there are power sets you can set it to. 
+		// Read the documentation. 
+ 		rc = BleTxPowerSet(dp) 
+		
+		// Print out the power in which it is set. 
+		PRINT "\nTx power : desired= ";dp," "," actual= "; SysInfo(2008)
+		
+  	    //InitGapService() 
+        
+		// Device Information Service & Characteristics 
+		device_info()
+        
+		Dim dn$  : dn$ = "M100electromed"
+		DIM adRpt$: adRpt$= ""
+		DIM scRpt$: scRpt$= ""
+		
+		DIM advAppearance : advAppearance = 1
+		DIM maxDevName : maxDevName = 0
+		
+		//DIM discovMode : discovMode=0   No discovery option is excepted
+		DIM discovMode : discovMode=2
+		
+
+	  //Initialise the advert report
+	  //  Advert report / General Discovery / Adv Appearance /  Device Name (not included) 
+	   rc = BleAdvRptInit(adRpt$,discovMode,advAppearance,maxDevName)
+	  
+	  
+	  //Create and initialise a scan report
+	  //not be used until BLEADVRPTSCOMMIT
+	   rc = BleScanRptInit(scRpt$)
+		 
+	   //This function adds an arbitrary AD (Advertising record) field to the advert report
+	   rc = BleAdvRptAppendAD(scRpt$,0x09,dn$)
+		 
+	   //This function is used to commit one or both advert reports
+	   rc = BleAdvRptsCommit(adRpt$,scRpt$)
+	   
+	   IF rc ==0 THEN
+				PRINT "\n BLE ADV RPTS COMMIT Successful"
+			ELSE
+				PRINT "\nFailed"
+		ENDIF
+		
+		CreateServices()
+		  
+		// (inviting connection requests, 1= static random address, time adv ms = 180, timeout ms = 60,000, 0 = disable whitelist
+		if BleAdvertStart(0,addr$,180,60000,0) == 0 then 
+		gpiowrite(17,1)
+
+		print "\nAdvertising has started..... \n"
+		endif
+
+ENDSUB 
+
+
+FUNCTION RECONNECT()
+
+// RESET the Device to start Advertising again.
+  reset(0)
+
+ENDFUNC 1
+
+FUNCTION FINISHSEND()
+
+CloseConnections()
+
+ENDFUNC 1
+
+FUNCTION TIMERHOLD()
+
+
+     // Print Finish in the uTerminal
+    Print "\n  FINISHED \n"
+	
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////Uncomment this if you want to Erase the Device memory. Only do this if you want to be in command mode (Bluetooth firmware upgrade over air)./////
+/////// Command mode cannot run if you have an autorun file, so Erase File System will erase autorun file////////////////////////////////////////////////
+////////for you and allow you to be in command mode. ////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	
+	 
+	//rc = EraseFileSystem(1) 
+	//IF rc!=0 THEN 
+	//PRINT "\nFailed to erase file system because SIO19 is low"
+   // ENDIF
+   
+
+// ENDFUNC 0, means this will stop autorun and allow you to program the uTerminal
+ENDFUNC 0
+
+function button1release()
+
+		//gpiowrite(19,0)   // general input output write into pin 18, low 0 = off
+
+
+	//MakeAdvertReports()
+	
+	TimerCancel(4)
+    Print "\n  CANCEL FAILED\n"
+
+endfunc 1
+
+function button1press()
+
+   // A timer countdown for 10 Seconds 
+   // Hold for 10 seconds to go into Command Mode
+   TimerStart(4,10000,0)
+   
+endfunc 1
+
+
+
+function button0press()
+
+endfunc 1
+
+
+rc = gpiosetfunc(11,1,2) //  sets BUTTON 0 as a Digital in with a weak pull up resistor 
+rc = gpiosetfunc(15,1,2) //  sets BUTTON 1 as a Digital in with a weak pull up resistor 
+
+                 // Pin,Digital out/in, Pull up/pull down/none
+rc = gpiosetfunc(17,2,0) // Sets LED 0 as a digital out 
+rc = gpiosetfunc(19,2,0) // Sets LED 1 as digital out 
+
+// Bind event / Registering events 
+                        // NO when register / Button number / 0 = high to low 1 = low to high 
+rc = gpiobindevent(0,11,0) // Binds a gpio transition high to an event BUTTON 0
+rc = gpiobindevent(1,11,1) // Binds a gpio transition low to an event BUTTON 0
+
+rc = gpiobindevent(2,15,0) // Binds a gpio transition high to an event BUTTON 1
+rc = gpiobindevent(3,15,1) // Binds a gpio transition low to an event BUTTON 1 
+
+
+
+onevent evgpiochan0 call button0release 
+onevent evgpiochan1 call button0press
+onevent evgpiochan2 call button1release
+onevent evgpiochan3 call button1press
+
+
+// TIMER EVENT 1 
+ONEVENT EVTMR0 CALL OutputCheck_Timer1 
+
+// TIMER EVENT 
+ONEVENT EVTMR1 CALL HandlerTimer1
+
+ONEVENT EVTMR2  CALL RECONNECT
+
+ONEVENT EVTMR3  CALL FINISHSEND
+
+ONEVENT EVTMR4  CALL TIMERHOLD
+
+
+
+//Significant BLE related event
+ONEVENT EVBLEMSG CALL HndlrBleMsg
+
+//This event is thrown when the client writes to the CCCD descriptor of a characteristic
+ONEVENT  EVCHARCCCD  CALL HndlrCharCccd
+
+// ADVERT TIMEOUT EVENT 
+ONEVENT EVBLE_ADV_TIMEOUT call HndlrBlrAdvTimOut
+
+
+//ONEVENT EVTMR0 CALL handlerTimer0 
+
+// This function will run to start BLE advertising.
+btnsub0()
+
+waitevent // When program is running, it will wait here until an event is detected  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
